@@ -6,9 +6,11 @@ Example 3.10: Economic Load Dispatch with Dynamic Simulation
 Features:
 - Real-time ODE solver (RK45 and Euler methods)
 - Dynamic visualization with matplotlib
-- Responsive window resizing
+- Responsive window resizing with automatic scrollbars
 - Interactive sliders for parameters
 - Economic dispatch optimization
+- Scrollable control panel for all screen sizes
+- Mouse wheel support for easy navigation
 """
 
 import tkinter as tk
@@ -275,6 +277,9 @@ class PowerSystemGUI:
         self.root.title("Power System Economic Dispatch - ODE Solver Simulator")
         self.root.geometry("1400x900")
 
+        # Set minimum window size
+        self.root.minsize(800, 600)
+
         # Create simulator
         self.simulator = PowerSystemSimulator()
 
@@ -303,19 +308,78 @@ class PowerSystemGUI:
         main_frame.grid_columnconfigure(0, weight=1)
         main_frame.grid_columnconfigure(1, weight=3)
 
-        # Left panel for controls
-        control_frame = ttk.LabelFrame(main_frame, text="Controls", padding=10)
-        control_frame.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
+        # Left panel for controls with scrollbar
+        control_outer_frame = ttk.LabelFrame(main_frame, text="Controls", padding=5)
+        control_outer_frame.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
+
+        # Create canvas and scrollbar for scrollable controls
+        self.control_canvas = tk.Canvas(control_outer_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(control_outer_frame, orient="vertical", command=self.control_canvas.yview)
+        self.scrollable_control_frame = ttk.Frame(self.control_canvas)
+
+        # Configure scrollbar
+        self.scrollable_control_frame.bind(
+            "<Configure>",
+            lambda e: self.control_canvas.configure(scrollregion=self.control_canvas.bbox("all"))
+        )
+
+        # Create window in canvas
+        self.canvas_window = self.control_canvas.create_window((0, 0), window=self.scrollable_control_frame, anchor="nw")
+
+        # Configure canvas scrolling
+        self.control_canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Pack scrollbar and canvas
+        scrollbar.pack(side="right", fill="y")
+        self.control_canvas.pack(side="left", fill="both", expand=True)
+
+        # Bind mousewheel for scrolling
+        self.control_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.control_canvas.bind_all("<Button-4>", self._on_mousewheel)  # Linux scroll up
+        self.control_canvas.bind_all("<Button-5>", self._on_mousewheel)  # Linux scroll down
+
+        # Bind canvas resize to adjust window width
+        self.control_canvas.bind('<Configure>', self._on_canvas_configure)
 
         # Right panel for plots
         plot_frame = ttk.Frame(main_frame)
         plot_frame.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
 
         # Create controls
-        self.create_controls(control_frame)
+        self.create_controls(self.scrollable_control_frame)
 
         # Create plots
         self.create_plots(plot_frame)
+
+    def _on_mousewheel(self, event):
+        """Handle mousewheel scrolling"""
+        # Check if mouse is over the control canvas
+        x, y = self.root.winfo_pointerxy()
+        widget = self.root.winfo_containing(x, y)
+
+        # Only scroll if mouse is over control panel
+        if widget and (widget == self.control_canvas or self._is_child_of(widget, self.control_canvas)):
+            if event.num == 5 or event.delta < 0:
+                # Scroll down
+                self.control_canvas.yview_scroll(1, "units")
+            elif event.num == 4 or event.delta > 0:
+                # Scroll up
+                self.control_canvas.yview_scroll(-1, "units")
+        return "break"
+
+    def _is_child_of(self, widget, parent):
+        """Check if widget is a child of parent"""
+        while widget:
+            if widget == parent:
+                return True
+            widget = widget.master
+        return False
+
+    def _on_canvas_configure(self, event):
+        """Handle canvas resize to update inner window width"""
+        # Set the width of the canvas window to match canvas width
+        canvas_width = event.width
+        self.control_canvas.itemconfig(self.canvas_window, width=canvas_width)
 
     def create_controls(self, parent):
         """Create control widgets"""
@@ -448,8 +512,17 @@ class PowerSystemGUI:
         ttk.Label(parent, text="Status:", font=('Arial', 10, 'bold')).grid(row=row, column=0, columnspan=2, pady=5, sticky='w')
         row += 1
 
-        self.status_text = tk.Text(parent, height=8, width=30, wrap=tk.WORD, font=('Courier', 9))
-        self.status_text.grid(row=row, column=0, columnspan=2, sticky='nsew', pady=5)
+        # Status text with scrollbar
+        status_frame = ttk.Frame(parent)
+        status_frame.grid(row=row, column=0, columnspan=2, sticky='nsew', pady=5)
+
+        status_scrollbar = ttk.Scrollbar(status_frame)
+        status_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.status_text = tk.Text(status_frame, height=10, width=30, wrap=tk.WORD,
+                                   font=('Courier', 9), yscrollcommand=status_scrollbar.set)
+        self.status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        status_scrollbar.config(command=self.status_text.yview)
 
         # Make parent expandable
         parent.grid_rowconfigure(row, weight=1)

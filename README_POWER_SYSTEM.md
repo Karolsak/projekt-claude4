@@ -28,10 +28,14 @@ A dynamic simulation tool for power system economic dispatch with real-time ODE 
   - Cost coefficient b₂ (linear term)
   - Ramping rate (MW/s)
 
-### 🔄 Automatic Window Resizing
+### 🔄 Automatic Window Resizing & Scrollbars
 - Fully responsive layout
 - Plots automatically adjust to window size
 - Grid-based layout for optimal space utilization
+- **Vertical scrollbars** for control panel - all elements accessible on any screen size
+- **Mouse wheel scrolling** supported in control panel
+- **Scrollable status display** for detailed information
+- Minimum window size: 800x600 pixels
 
 ## Problem Description (Example 3.10)
 
@@ -141,6 +145,8 @@ python3 power_system_ode_gui.py
 - **Time Scale**: Control simulation speed
 - **Unit Parameters**: Adjust cost functions and ramping
 - **Status Display**: Real-time system information
+- **Scrollbar**: Use mouse wheel or scrollbar to access all controls
+- **Responsive**: All controls visible regardless of window size
 
 #### Visualization Panel (Right Side)
 - **Top Left**: Power generation time series

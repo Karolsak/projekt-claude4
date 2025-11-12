@@ -17,6 +17,10 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from scipy.integrate import solve_ivp
 import math
+import warnings
+
+# Suppress matplotlib warnings
+warnings.filterwarnings('ignore', category=UserWarning)
 
 
 class HydroThermalSimulator:
@@ -46,6 +50,7 @@ class HydroThermalSimulator:
         self.solver_type = tk.StringVar(value="RK45")
         self.simulation_running = False
         self.simulation_data = None
+        self.sliders = {}  # Initialize sliders dictionary
 
         # Create main container
         self.main_container = ttk.Frame(root, padding="10")
@@ -54,7 +59,7 @@ class HydroThermalSimulator:
         self.main_container.columnconfigure(0, weight=1)
 
         self.create_widgets()
-        self.calculate_static_solution()
+        self.root.after(100, self.calculate_static_solution)
 
     def create_widgets(self):
         """Create all GUI widgets"""
@@ -94,7 +99,6 @@ class HydroThermalSimulator:
         sliders_frame = ttk.LabelFrame(scrollable_frame, text="Parameters", padding="10")
         sliders_frame.pack(fill="x", padx=5, pady=5)
 
-        self.sliders = {}
         slider_configs = [
             ("Thermal Plant - Constant (a)", 'thermal_a', 0.0, 20.0, 0.1),
             ("Thermal Plant - Linear (b)", 'thermal_b', 5.0, 30.0, 0.5),
@@ -184,10 +188,15 @@ class HydroThermalSimulator:
         ttk.Label(frame, text=label, width=30).grid(row=0, column=0, sticky=tk.W)
 
         # Create value label first
-        value_label = ttk.Label(frame, text=f"{self.params[key]:.3f}", width=10)
+        if key == 'time_steps':
+            value_text = f"{int(self.params[key])}"
+        else:
+            value_text = f"{self.params[key]:.3f}"
+
+        value_label = ttk.Label(frame, text=value_text, width=10)
         value_label.grid(row=0, column=2, sticky=tk.E)
 
-        # Create slider (command will be set after adding to dict)
+        # Create slider without command initially
         slider = ttk.Scale(
             frame,
             from_=min_val,
@@ -196,23 +205,28 @@ class HydroThermalSimulator:
         )
         slider.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
 
-        # Add to dictionary BEFORE setting command and value
+        # Store in dictionary FIRST
         self.sliders[key] = (slider, value_label)
 
-        # Now set the command and value
+        # Then configure command and set value
         slider.configure(command=lambda v, k=key: self.on_slider_change(k, v))
         slider.set(self.params[key])
 
     def on_slider_change(self, key, value):
         """Handle slider value changes"""
-        val = float(value)
-        self.params[key] = val
-        _, label = self.sliders[key]
+        try:
+            val = float(value)
+            self.params[key] = val
 
-        if key == 'time_steps':
-            label.config(text=f"{int(val)}")
-        else:
-            label.config(text=f"{val:.3f}")
+            if key in self.sliders:
+                _, label = self.sliders[key]
+
+                if key == 'time_steps':
+                    label.config(text=f"{int(val)}")
+                else:
+                    label.config(text=f"{val:.3f}")
+        except Exception as e:
+            print(f"Error updating slider {key}: {e}")
 
     def on_resize(self, event):
         """Handle window resize events"""
@@ -221,7 +235,11 @@ class HydroThermalSimulator:
         except Exception:
             # Ignore tight_layout errors (happens with some plot types like pie charts)
             pass
-        self.canvas.draw()
+        try:
+            self.canvas.draw()
+        except Exception:
+            # Ignore drawing errors during initialization
+            pass
 
     def calculate_static_solution(self):
         """Calculate the static solution for Example 6.10"""
@@ -320,93 +338,100 @@ Total Operating Cost: {a + b*P_GT + c*P_GT**2 + gamma * incremental_water_rate *
 
         except Exception as e:
             messagebox.showerror("Calculation Error", f"Error in calculation:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def plot_static_analysis(self, P_GH, P_GT, lambda_val, gamma):
         """Plot static analysis results"""
-        self.fig.clear()
+        try:
+            self.fig.clear()
 
-        # Create 2x2 subplot grid
-        gs = self.fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
+            # Create 2x2 subplot grid
+            gs = self.fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
 
-        # Plot 1: Incremental Cost Curves
-        ax1 = self.fig.add_subplot(gs[0, 0])
+            # Plot 1: Incremental Cost Curves
+            ax1 = self.fig.add_subplot(gs[0, 0])
 
-        a = self.params['thermal_a']
-        b = self.params['thermal_b']
-        c = self.params['thermal_c']
-        alpha = self.params['hydro_alpha']
-        beta = self.params['hydro_beta']
+            a = self.params['thermal_a']
+            b = self.params['thermal_b']
+            c = self.params['thermal_c']
+            alpha = self.params['hydro_alpha']
+            beta = self.params['hydro_beta']
 
-        P_range_thermal = np.linspace(0, 500, 100)
-        IC_thermal = b + 2 * c * P_range_thermal
+            P_range_thermal = np.linspace(0, 500, 100)
+            IC_thermal = b + 2 * c * P_range_thermal
 
-        P_range_hydro = np.linspace(0, 400, 100)
-        IC_hydro = gamma * (alpha + beta * P_range_hydro)
+            P_range_hydro = np.linspace(0, 400, 100)
+            IC_hydro = gamma * (alpha + beta * P_range_hydro)
 
-        ax1.plot(P_range_thermal, IC_thermal, 'r-', linewidth=2, label='Thermal IC')
-        ax1.plot(P_range_hydro, IC_hydro, 'b-', linewidth=2, label='Hydro IC (γ adjusted)')
-        ax1.axhline(y=lambda_val, color='g', linestyle='--', linewidth=2, label=f'λ = {lambda_val:.2f}')
-        ax1.axvline(x=P_GT, color='r', linestyle=':', alpha=0.5)
-        ax1.axvline(x=P_GH, color='b', linestyle=':', alpha=0.5)
-        ax1.scatter([P_GT], [lambda_val], color='red', s=100, zorder=5, label=f'PGT = {P_GT:.1f} MW')
-        ax1.scatter([P_GH], [lambda_val], color='blue', s=100, zorder=5, label=f'PGH = {P_GH:.1f} MW')
-        ax1.set_xlabel('Power Generation (MW)')
-        ax1.set_ylabel('Incremental Cost (Rs./MWh)')
-        ax1.set_title('Incremental Cost Characteristics')
-        ax1.legend(fontsize=8)
-        ax1.grid(True, alpha=0.3)
+            ax1.plot(P_range_thermal, IC_thermal, 'r-', linewidth=2, label='Thermal IC')
+            ax1.plot(P_range_hydro, IC_hydro, 'b-', linewidth=2, label='Hydro IC (γ adjusted)')
+            ax1.axhline(y=lambda_val, color='g', linestyle='--', linewidth=2, label=f'λ = {lambda_val:.2f}')
+            ax1.axvline(x=P_GT, color='r', linestyle=':', alpha=0.5)
+            ax1.axvline(x=P_GH, color='b', linestyle=':', alpha=0.5)
+            ax1.scatter([P_GT], [lambda_val], color='red', s=100, zorder=5, label=f'PGT = {P_GT:.1f} MW')
+            ax1.scatter([P_GH], [lambda_val], color='blue', s=100, zorder=5, label=f'PGH = {P_GH:.1f} MW')
+            ax1.set_xlabel('Power Generation (MW)')
+            ax1.set_ylabel('Incremental Cost (Rs./MWh)')
+            ax1.set_title('Incremental Cost Characteristics')
+            ax1.legend(fontsize=8)
+            ax1.grid(True, alpha=0.3)
 
-        # Plot 2: Generation Distribution
-        ax2 = self.fig.add_subplot(gs[0, 1])
+            # Plot 2: Generation Distribution
+            ax2 = self.fig.add_subplot(gs[0, 1])
 
-        labels = ['Thermal', 'Hydro']
-        sizes = [P_GT, P_GH]
-        colors = ['#ff6b6b', '#4ecdc4']
-        explode = (0.05, 0.05)
+            labels = ['Thermal', 'Hydro']
+            sizes = [P_GT, P_GH]
+            colors = ['#ff6b6b', '#4ecdc4']
+            explode = (0.05, 0.05)
 
-        ax2.pie(sizes, explode=explode, labels=labels, colors=colors,
-                autopct='%1.1f%%', shadow=True, startangle=90)
-        ax2.set_title(f'Power Generation Distribution\nTotal: {P_GT + P_GH:.1f} MW')
+            ax2.pie(sizes, explode=explode, labels=labels, colors=colors,
+                    autopct='%1.1f%%', shadow=True, startangle=90)
+            ax2.set_title(f'Power Generation Distribution\nTotal: {P_GT + P_GH:.1f} MW')
 
-        # Plot 3: Water Usage Over Time (constant for static)
-        ax3 = self.fig.add_subplot(gs[1, 0])
+            # Plot 3: Water Usage Over Time (constant for static)
+            ax3 = self.fig.add_subplot(gs[1, 0])
 
-        time_hours = np.linspace(0, self.params['hydro_hours'], 100)
-        water_rate = (alpha + beta * P_GH) * P_GH  # m³/s
-        cumulative_water = water_rate * time_hours * 3600 / 1e6  # Million m³
+            time_hours = np.linspace(0, self.params['hydro_hours'], 100)
+            water_rate = (alpha + beta * P_GH) * P_GH  # m³/s
+            cumulative_water = water_rate * time_hours * 3600 / 1e6  # Million m³
 
-        ax3.plot(time_hours, cumulative_water, 'b-', linewidth=2)
-        ax3.axhline(y=self.params['water_total'], color='r', linestyle='--',
-                    label=f'Total Available: {self.params["water_total"]:.1f} M m³')
-        ax3.set_xlabel('Time (hours)')
-        ax3.set_ylabel('Cumulative Water Used (Million m³)')
-        ax3.set_title('Water Usage Profile (Static)')
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
+            ax3.plot(time_hours, cumulative_water, 'b-', linewidth=2)
+            ax3.axhline(y=self.params['water_total'], color='r', linestyle='--',
+                        label=f'Total Available: {self.params["water_total"]:.1f} M m³')
+            ax3.set_xlabel('Time (hours)')
+            ax3.set_ylabel('Cumulative Water Used (Million m³)')
+            ax3.set_title('Water Usage Profile (Static)')
+            ax3.legend()
+            ax3.grid(True, alpha=0.3)
 
-        # Plot 4: Cost Comparison
-        ax4 = self.fig.add_subplot(gs[1, 1])
+            # Plot 4: Cost Comparison
+            ax4 = self.fig.add_subplot(gs[1, 1])
 
-        thermal_cost = a + b * P_GT + c * P_GT**2
-        hydro_cost = gamma * (alpha + beta * P_GH) * P_GH
+            thermal_cost = a + b * P_GT + c * P_GT**2
+            hydro_cost = gamma * (alpha + beta * P_GH) * P_GH
 
-        categories = ['Thermal\nGeneration', 'Hydro\nWater', 'Total']
-        costs = [thermal_cost, hydro_cost, thermal_cost + hydro_cost]
-        colors_bar = ['#ff6b6b', '#4ecdc4', '#95e1d3']
+            categories = ['Thermal\nGeneration', 'Hydro\nWater', 'Total']
+            costs = [thermal_cost, hydro_cost, thermal_cost + hydro_cost]
+            colors_bar = ['#ff6b6b', '#4ecdc4', '#95e1d3']
 
-        bars = ax4.bar(categories, costs, color=colors_bar, edgecolor='black', linewidth=1.5)
-        ax4.set_ylabel('Cost (Rs./hr)')
-        ax4.set_title('Operating Cost Breakdown')
-        ax4.grid(True, alpha=0.3, axis='y')
+            bars = ax4.bar(categories, costs, color=colors_bar, edgecolor='black', linewidth=1.5)
+            ax4.set_ylabel('Cost (Rs./hr)')
+            ax4.set_title('Operating Cost Breakdown')
+            ax4.grid(True, alpha=0.3, axis='y')
 
-        # Add value labels on bars
-        for bar, cost in zip(bars, costs):
-            height = bar.get_height()
-            ax4.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{cost:.1f}',
-                    ha='center', va='bottom', fontweight='bold')
+            # Add value labels on bars
+            for bar, cost in zip(bars, costs):
+                height = bar.get_height()
+                ax4.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{cost:.1f}',
+                        ha='center', va='bottom', fontweight='bold')
 
-        self.canvas.draw()
+            self.canvas.draw()
+        except Exception as e:
+            print(f"Error plotting static analysis: {e}")
+            import traceback
+            traceback.print_exc()
 
     def run_dynamic_simulation(self):
         """Run dynamic simulation with selected ODE solver"""
@@ -605,87 +630,92 @@ Total Operating Cost: {np.trapezoid(thermal_cost_result + hydro_cost_result, t_r
         if self.simulation_data is None:
             return
 
-        self.fig.clear()
+        try:
+            self.fig.clear()
 
-        # Create 3x2 subplot grid
-        gs = self.fig.add_gridspec(3, 2, hspace=0.35, wspace=0.3)
+            # Create 3x2 subplot grid
+            gs = self.fig.add_gridspec(3, 2, hspace=0.35, wspace=0.3)
 
-        t = self.simulation_data['t']
+            t = self.simulation_data['t']
 
-        # Plot 1: Power Generation vs Time
-        ax1 = self.fig.add_subplot(gs[0, 0])
-        ax1.plot(t, self.simulation_data['P_GH'], 'b-', linewidth=2, label='Hydro')
-        ax1.plot(t, self.simulation_data['P_GT'], 'r-', linewidth=2, label='Thermal')
-        ax1.plot(t, self.simulation_data['P_total'], 'g--', linewidth=2, label='Total')
-        ax1.set_xlabel('Time (hours)')
-        ax1.set_ylabel('Power (MW)')
-        ax1.set_title('Power Generation vs Time')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
+            # Plot 1: Power Generation vs Time
+            ax1 = self.fig.add_subplot(gs[0, 0])
+            ax1.plot(t, self.simulation_data['P_GH'], 'b-', linewidth=2, label='Hydro')
+            ax1.plot(t, self.simulation_data['P_GT'], 'r-', linewidth=2, label='Thermal')
+            ax1.plot(t, self.simulation_data['P_total'], 'g--', linewidth=2, label='Total')
+            ax1.set_xlabel('Time (hours)')
+            ax1.set_ylabel('Power (MW)')
+            ax1.set_title('Power Generation vs Time')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3)
 
-        # Plot 2: Water Usage vs Time
-        ax2 = self.fig.add_subplot(gs[0, 1])
-        ax2.plot(t, self.simulation_data['water_used'], 'b-', linewidth=2, label='Water Used')
-        ax2.axhline(y=self.params['water_total'], color='r', linestyle='--',
-                    linewidth=2, label=f'Target: {self.params["water_total"]:.1f} M m³')
-        ax2.fill_between(t, 0, self.simulation_data['water_used'], alpha=0.3)
-        ax2.set_xlabel('Time (hours)')
-        ax2.set_ylabel('Cumulative Water (Million m³)')
-        ax2.set_title('Water Usage vs Time')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+            # Plot 2: Water Usage vs Time
+            ax2 = self.fig.add_subplot(gs[0, 1])
+            ax2.plot(t, self.simulation_data['water_used'], 'b-', linewidth=2, label='Water Used')
+            ax2.axhline(y=self.params['water_total'], color='r', linestyle='--',
+                        linewidth=2, label=f'Target: {self.params["water_total"]:.1f} M m³')
+            ax2.fill_between(t, 0, self.simulation_data['water_used'], alpha=0.3)
+            ax2.set_xlabel('Time (hours)')
+            ax2.set_ylabel('Cumulative Water (Million m³)')
+            ax2.set_title('Water Usage vs Time')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
 
-        # Plot 3: Lambda (Incremental Cost) vs Time
-        ax3 = self.fig.add_subplot(gs[1, 0])
-        ax3.plot(t, self.simulation_data['lambda'], 'g-', linewidth=2)
-        ax3.fill_between(t, min(self.simulation_data['lambda'])-1,
-                         self.simulation_data['lambda'], alpha=0.3, color='green')
-        ax3.set_xlabel('Time (hours)')
-        ax3.set_ylabel('Lambda (Rs./MWh)')
-        ax3.set_title('Incremental Cost vs Time')
-        ax3.grid(True, alpha=0.3)
+            # Plot 3: Lambda (Incremental Cost) vs Time
+            ax3 = self.fig.add_subplot(gs[1, 0])
+            ax3.plot(t, self.simulation_data['lambda'], 'g-', linewidth=2)
+            ax3.fill_between(t, min(self.simulation_data['lambda'])-1,
+                             self.simulation_data['lambda'], alpha=0.3, color='green')
+            ax3.set_xlabel('Time (hours)')
+            ax3.set_ylabel('Lambda (Rs./MWh)')
+            ax3.set_title('Incremental Cost vs Time')
+            ax3.grid(True, alpha=0.3)
 
-        # Plot 4: Water Cost vs Time
-        ax4 = self.fig.add_subplot(gs[1, 1])
-        ax4.plot(t, self.simulation_data['gamma'], 'm-', linewidth=2)
-        ax4.fill_between(t, min(self.simulation_data['gamma'])-0.01,
-                         self.simulation_data['gamma'], alpha=0.3, color='magenta')
-        ax4.set_xlabel('Time (hours)')
-        ax4.set_ylabel('Water Cost γ (Rs./hr/m³/s)')
-        ax4.set_title('Water Cost vs Time')
-        ax4.grid(True, alpha=0.3)
+            # Plot 4: Water Cost vs Time
+            ax4 = self.fig.add_subplot(gs[1, 1])
+            ax4.plot(t, self.simulation_data['gamma'], 'm-', linewidth=2)
+            ax4.fill_between(t, min(self.simulation_data['gamma'])-0.01,
+                             self.simulation_data['gamma'], alpha=0.3, color='magenta')
+            ax4.set_xlabel('Time (hours)')
+            ax4.set_ylabel('Water Cost γ (Rs./hr/m³/s)')
+            ax4.set_title('Water Cost vs Time')
+            ax4.grid(True, alpha=0.3)
 
-        # Plot 5: Operating Costs vs Time
-        ax5 = self.fig.add_subplot(gs[2, 0])
-        ax5.plot(t, self.simulation_data['thermal_cost'], 'r-', linewidth=2, label='Thermal')
-        ax5.plot(t, self.simulation_data['hydro_cost'], 'b-', linewidth=2, label='Hydro')
-        ax5.plot(t, self.simulation_data['total_cost'], 'k--', linewidth=2, label='Total')
-        ax5.set_xlabel('Time (hours)')
-        ax5.set_ylabel('Cost (Rs./hr)')
-        ax5.set_title('Operating Costs vs Time')
-        ax5.legend()
-        ax5.grid(True, alpha=0.3)
+            # Plot 5: Operating Costs vs Time
+            ax5 = self.fig.add_subplot(gs[2, 0])
+            ax5.plot(t, self.simulation_data['thermal_cost'], 'r-', linewidth=2, label='Thermal')
+            ax5.plot(t, self.simulation_data['hydro_cost'], 'b-', linewidth=2, label='Hydro')
+            ax5.plot(t, self.simulation_data['total_cost'], 'k--', linewidth=2, label='Total')
+            ax5.set_xlabel('Time (hours)')
+            ax5.set_ylabel('Cost (Rs./hr)')
+            ax5.set_title('Operating Costs vs Time')
+            ax5.legend()
+            ax5.grid(True, alpha=0.3)
 
-        # Plot 6: Cumulative Cost
-        ax6 = self.fig.add_subplot(gs[2, 1])
-        cumulative_cost = np.cumsum(self.simulation_data['total_cost']) * (t[1] - t[0])
-        ax6.plot(t, cumulative_cost, 'k-', linewidth=2)
-        ax6.fill_between(t, 0, cumulative_cost, alpha=0.3, color='gray')
-        ax6.set_xlabel('Time (hours)')
-        ax6.set_ylabel('Cumulative Cost (Rs.)')
-        ax6.set_title('Total Cumulative Cost')
-        ax6.grid(True, alpha=0.3)
+            # Plot 6: Cumulative Cost
+            ax6 = self.fig.add_subplot(gs[2, 1])
+            cumulative_cost = np.cumsum(self.simulation_data['total_cost']) * (t[1] - t[0])
+            ax6.plot(t, cumulative_cost, 'k-', linewidth=2)
+            ax6.fill_between(t, 0, cumulative_cost, alpha=0.3, color='gray')
+            ax6.set_xlabel('Time (hours)')
+            ax6.set_ylabel('Cumulative Cost (Rs.)')
+            ax6.set_title('Total Cumulative Cost')
+            ax6.grid(True, alpha=0.3)
 
-        # Add final value annotation
-        final_cost = cumulative_cost[-1]
-        ax6.annotate(f'Final: {final_cost:.2f} Rs.',
-                    xy=(t[-1], final_cost),
-                    xytext=(t[-1]*0.6, final_cost*0.8),
-                    arrowprops=dict(arrowstyle='->', color='red', lw=2),
-                    fontsize=10, fontweight='bold',
-                    bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7))
+            # Add final value annotation
+            final_cost = cumulative_cost[-1]
+            ax6.annotate(f'Final: {final_cost:.2f} Rs.',
+                        xy=(t[-1], final_cost),
+                        xytext=(t[-1]*0.6, final_cost*0.8),
+                        arrowprops=dict(arrowstyle='->', color='red', lw=2),
+                        fontsize=10, fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7))
 
-        self.canvas.draw()
+            self.canvas.draw()
+        except Exception as e:
+            print(f"Error plotting dynamic results: {e}")
+            import traceback
+            traceback.print_exc()
 
     def reset_defaults(self):
         """Reset all parameters to default values"""

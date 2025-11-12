@@ -183,20 +183,25 @@ class HydroThermalSimulator:
 
         ttk.Label(frame, text=label, width=30).grid(row=0, column=0, sticky=tk.W)
 
+        # Create value label first
+        value_label = ttk.Label(frame, text=f"{self.params[key]:.3f}", width=10)
+        value_label.grid(row=0, column=2, sticky=tk.E)
+
+        # Create slider (command will be set after adding to dict)
         slider = ttk.Scale(
             frame,
             from_=min_val,
             to=max_val,
-            orient=tk.HORIZONTAL,
-            command=lambda v, k=key: self.on_slider_change(k, v)
+            orient=tk.HORIZONTAL
         )
-        slider.set(self.params[key])
         slider.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
 
-        value_label = ttk.Label(frame, text=f"{self.params[key]:.3f}", width=10)
-        value_label.grid(row=0, column=2, sticky=tk.E)
-
+        # Add to dictionary BEFORE setting command and value
         self.sliders[key] = (slider, value_label)
+
+        # Now set the command and value
+        slider.configure(command=lambda v, k=key: self.on_slider_change(k, v))
+        slider.set(self.params[key])
 
     def on_slider_change(self, key, value):
         """Handle slider value changes"""
@@ -211,7 +216,11 @@ class HydroThermalSimulator:
 
     def on_resize(self, event):
         """Handle window resize events"""
-        self.fig.tight_layout()
+        try:
+            self.fig.tight_layout()
+        except Exception:
+            # Ignore tight_layout errors (happens with some plot types like pie charts)
+            pass
         self.canvas.draw()
 
     def calculate_static_solution(self):
@@ -510,7 +519,7 @@ Water Error: {abs(final_water - self.params['water_total']):.4f} million m³
 Average Water Cost: {avg_gamma:.5f} Rs./hr/m³/s
 Average Lambda: {np.mean(lambda_result):.4f} Rs./MWh
 
-Total Operating Cost: {np.trapz(thermal_cost_result + hydro_cost_result, t_result/3600):.2f} Rs.
+Total Operating Cost: {np.trapezoid(thermal_cost_result + hydro_cost_result, t_result/3600):.2f} Rs.
 """
 
             current_text = self.results_text.get(1.0, tk.END)
